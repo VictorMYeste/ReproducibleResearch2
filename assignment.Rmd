@@ -1,0 +1,198 @@
+---
+title: "Severe weather events most harmful to population health or the economy"
+author: "Víctor Yeste"
+date: "7/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+The basic goal of this report is to explore the NOAA Storm Database and answer some basic questions about severe weather events:
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+
+## Data Processing
+
+### Storm Data Information
+
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. We have downloaded the file from the [course web site](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2).
+
+The events in the database start in the year 1950 and end in November 2011. In the earlier years of the database there are generally fewer events recorded, most likely due to a lack of good records. More recent years should be considered more complete.
+
+More documentation:
+
+- National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+- National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+### Libraries
+
+First, we load the libraries we are going to use in this analysis.
+
+```{r  libraries}
+library(ggplot2)
+```
+
+### Reading the Storm Data
+
+We read the Storm Data from the file.
+
+```{r readingdata, cache = TRUE}
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "repdata%2Fdata%2FStormData.csv.bz2")
+data <- read.csv("repdata%2Fdata%2FStormData.csv.bz2")
+```
+
+After reading the data, we check the last few rows (there are 902,297) in this dataset. We chech the last ones because they will be more detailed than the first ones.
+
+```{r taildata}
+tail(data)
+```
+
+### Filtering only the data needed
+
+We need to filter only the data we are going to need, to improve the performance and clarity of the analysis.
+
+```{r filterdata}
+data <- subset(data, select = c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP"))
+```
+
+### Summarizing health and economy columns
+
+The columns we are interested in are the FATALITIES, INJURIES, PROPDMG and CROPDMG columns which contains the fatalities, injuries, property damage and crop damage measurements respectively. Here we extract that columns and print a brief summary
+
+```{r fatalitiesandinjuries}
+fatalities <- data$FATALITIES
+summary(fatalities)
+injuries <- data$INJURIES
+summary(injuries)
+propdmg <- data$PROPDMG
+summary(propdmg)
+cropdmg <- data$CROPDMG
+summary(cropdmg)
+```
+
+Missing values are a common problem with environmental data and so we check to see what proportion of the observations are missing (i.e. coded as NA).
+
+```{r fatalitiesna}
+mean(is.na(fatalities))
+mean(is.na(injuries))
+mean(is.na(propdmg))
+mean(is.na(cropdmg))
+```
+
+There are no missing values in the  columns.
+
+
+
+### Calculating health and economy values
+
+The economy columns are PROPDMG, PROPDMGEXP, CROPDMG and CROPDMGEXP. PROPDMGEXP and CROPDMGEXP are the exponents values, so we need to calculate the final values to work with them.
+
+```{r calculateeconomyvalues, cache = TRUE}
+data$VICTIMS <- data$FATALITIES + data$INJURIES
+calculateFinalValue <- function(x, y = ""){
+    if(x == 0 | y == ""){
+        x
+    } else {
+        switch(y,
+               "H" = x*100,
+               "h" = x*100,
+               "K" = x*1000,
+               "k" = x*1000,
+               "M" = x*1000000,
+               "m" = x*1000000,
+               "B" = x*1000000000,
+               "b" = x*1000000000,
+               "0" = x*10^0,
+               "1" = x*10^1,
+               "2" = x*10^2,
+               "3" = x*10^3,
+               "4" = x*10^4,
+               "5" = x*10^5,
+               "6" = x*10^6,
+               "7" = x*10^7,
+               "8" = x*10^8,
+               "9" = x*10^9,
+               "?" = NA,
+               "-" = NA,
+               "+" = NA);
+    }
+}
+data$PROPDMG.TOTAL <- mapply(calculateFinalValue, data$PROPDMG, data$PROPDMGEXP)
+data$CROPDMG.TOTAL <- mapply(calculateFinalValue, data$CROPDMG, data$CROPDMGEXP)
+data$ECONOMY.TOTAL <- data$PROPDMG.TOTAL + data$CROPDMG.TOTAL
+```
+
+## Results
+
+### Types of events most harmful with respect to population health
+
+Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+First, we remove all the rows that don't have fatalities nor injuries
+
+```{r healthremovenull}
+data.health <- data[data$VICTIMS != 0 & !is.na(data$VICTIMS), ]
+```
+
+Second, we see the sample quantiles corresponding to some probabilities to choose which the most harmful to population health.
+
+```{r healthchoosemostharmful}
+quantile(data.health$VICTIMS, probs = c(0, 0.5, 0.75, 0.9, 0.95, 0.99, 1))
+```
+
+We can see that there is a big change between 99% and 100%. We choose to consider the most harmful the ones that are more than the 99%. We show, then, the sum of victims for each EVTYPE, as indicated in the assignment, ordered in a descendant manner.
+
+```{r healthtop}
+data.health <- data.health[data.health$VICTIMS > quantile(data.health$VICTIMS, 0.99),]
+events.health <- aggregate(VICTIMS ~ EVTYPE, data = data.health, sum)
+events.health$VICTIMS <- sort(events.health$VICTIMS, decreasing = TRUE)
+events.health
+```
+
+We can plot the values from the top 5 converting them as factors and see them together, graphically.
+
+```{r healthplot}
+p1 <- ggplot(head(events.health, 5), aes(as.factor(EVTYPE), VICTIMS)) + geom_point() + labs(title = "Most harmful events with respect to population health", x = "Event Type", y = "Victims")
+p1
+```
+
+### Types of events that have the greatest economic consequences
+
+Across the United States, which types of events have the greatest economic consequences?
+
+First, we remove all the rows that don't have produced an economic consequence.
+
+```{r economyremovenull}
+data.economy <- data[data$ECONOMY.TOTAL != 0 & !is.na(data$ECONOMY.TOTAL), ]
+```
+
+Second, we see the sample quantiles corresponding to some probabilities to choose which have the greatest economic consequences.
+
+```{r economychoosemostharmful}
+quantile(data.economy$ECONOMY.TOTAL, probs = c(0, 0.5, 0.75, 0.9, 0.95, 0.99, 1))
+```
+
+We can see that there is a big change between 99% and 100%. We choose to consider the ones with the greatest economic consequences the ones that are more than the 99%. We show, then, the sum of the economic consequences for each EVTYPE, as indicated in the assignment, ordered in a descendant manner.
+
+```{r economytop}
+data.economy <- data.economy[data.economy$ECONOMY.TOTAL > quantile(data.economy$ECONOMY.TOTAL, 0.99),]
+events.economy <- aggregate(ECONOMY.TOTAL ~ EVTYPE, data = data.economy, sum)
+events.economy$ECONOMY.TOTAL <- sort(events.economy$ECONOMY.TOTAL, decreasing = TRUE)
+events.economy
+```
+
+We can plot the values from the top 5 converting them as factors and see them together, graphically.
+
+```{r economyplot}
+p2 <- ggplot(head(events.economy, 5), aes(as.factor(EVTYPE), ECONOMY.TOTAL)) + geom_point() + labs(title = "Events with the greatest economic consequences", x = "Event Type", y = "Economic impact ($)")
+p2
+```
